@@ -2,6 +2,8 @@ backup
 output
 code/*.pyc
 code/miscc/*.pyc
+code/data
+code/output
 .DS_Store
 .idea/
 

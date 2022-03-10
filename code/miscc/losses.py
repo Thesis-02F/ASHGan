@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import numpy as np
 from miscc.config import cfg
@@ -163,8 +164,15 @@ def discriminator_loss(netD, real_imgs, fake_imgs, conditions,
         errD = cond_real_errD + (cond_fake_errD + cond_wrong_errD) / 2.
     return errD
 
+def image_to_text_loss(output, target):
+    # bs x T x vocab_size - > bs * T x vocab_size
+    bs, T, vocab_size = output.shape
+    output = output.view(-1, vocab_size)
+    # bs x T -> bs * T
+    target = target.view(-1)
+    return F.cross_entropy(output, target)
 
-def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
+def generator_loss(netsD, image_encoder, fake_imgs, real_labels, captions,
                    words_embs, sent_emb, match_labels,
                    cap_lens, class_ids):
     numDs = len(netsD)
@@ -190,7 +198,7 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
         if i == (numDs - 1):
             # words_features: batch_size x nef x 17 x 17
             # sent_code: batch_size x nef
-            region_features, cnn_code = image_encoder(fake_imgs[i])
+            region_features, cnn_code, word_logits = image_encoder(fake_imgs[i], captions)
             w_loss0, w_loss1, _ = words_loss(region_features, words_embs,
                                              match_labels, cap_lens,
                                              class_ids, batch_size)
@@ -204,8 +212,10 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                 cfg.TRAIN.SMOOTH.LAMBDA
             # err_sent = err_sent + s_loss.data[0]
 
-            errG_total += w_loss + s_loss
-            logs += 'w_loss: %.2f s_loss: %.2f ' % (w_loss.item(), s_loss.item())
+            t_loss = image_to_text_loss(word_logits, captions) * cfg.TRAIN.SMOOTH.LAMBDA
+
+            errG_total += w_loss + s_loss + t_loss
+            logs += 'w_loss: %.2f s_loss: %.2f t_loss: %.2f ' % (w_loss.item(), s_loss.item(), t_loss.item())
     return errG_total, logs
 
 

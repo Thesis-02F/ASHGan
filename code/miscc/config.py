@@ -76,6 +76,9 @@ __C.GAN.CUTOFF_STAGE = 4         # cutoff stage to stop using the truncation tri
 __C.GAN.MBSTD_GROUP_SIZE = 4     # group size for minibatch standard deviation to improve variation
 __C.GAN.BLUR_TYPE = 'binomial'   # type of low-pass filter to use for better upssampling/downsampling
 
+__C.CNN_RNN = edict()
+__C.CNN_RNN.HIDDEN_DIM = 768
+
 # AttnGAN model options only
 __C.GAN.R_NUM = 2
 
@@ -123,6 +126,6 @@ def cfg_from_file(filename):
     """Load a config file and merge it into the default options."""
     import yaml
     with open(filename, 'r') as f:
-        yaml_cfg = edict(yaml.load(f))
+        yaml_cfg = edict(yaml.safe_load(f))
 
     _merge_a_into_b(yaml_cfg, __C)

@@ -15,7 +15,8 @@ from miscc.utils import build_super_images, build_super_images2
 from miscc.utils import weights_init, load_params, copy_G_params
 from model import G_DCGAN, G_NET, G_NET_STYLED
 from datasets import prepare_data
-from model import TRANSFORMER_ENCODER, RNN_ENCODER, CNN_ENCODER
+from model import TRANSFORMER_ENCODER, RNN_ENCODER, CNN_ENCODER, CNN_ENCODER_RNN_DECODER, \
+    BERT_CNN_ENCODER_RNN_DECODER, BERT_RNN_ENCODER
 
 from miscc.losses import words_loss
 from miscc.losses import discriminator_loss, generator_loss, KL_loss
@@ -58,7 +59,8 @@ class condGANTrainer(object):
             raise FileNotFoundError('No pretrained text encoder found in directory DAMSMencoders/. \n'
                                   + 'Please train the DAMSM first before training the GAN (see README for details).')
 
-        image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
+        image_encoder = BERT_CNN_ENCODER_RNN_DECODER(cfg.TEXT.EMBEDDING_DIM, cfg.CNN_RNN.HIDDEN_DIM,
+                                            self.n_words, rec_unit=cfg.RNN_TYPE)
         img_encoder_path = cfg.TRAIN.NET_E.replace('text_encoder', 'image_encoder')
         state_dict = \
             torch.load(img_encoder_path, map_location=lambda storage, loc: storage)
@@ -66,13 +68,11 @@ class condGANTrainer(object):
         for p in image_encoder.parameters():
             p.requires_grad = False
         print('Load image encoder from:', img_encoder_path)
-        image_encoder.eval()
+        # Note: t_loss backwards on the rnn so this need to be disabled
+        # image_encoder.eval()
 
-        if self.text_encoder_type == 'rnn':
-            text_encoder = \
-                RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
-        elif self.text_encoder_type == 'transformer':
-            text_encoder = GPT2Model.from_pretrained( TRANSFORMER_ENCODER )
+        text_encoder = \
+            BERT_RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
         state_dict = \
             torch.load(cfg.TRAIN.NET_E,
                        map_location=lambda storage, loc: storage)
@@ -290,7 +290,7 @@ class condGANTrainer(object):
         # for i in range(len(netsD)):
         i = -1
         img = fake_imgs[i].detach()
-        region_features, _ = image_encoder(img)
+        region_features, _, _ = image_encoder(img, captions)
         att_sze = region_features.size(2)
         _, _, att_maps = words_loss(region_features.detach(),
                                     words_embs.detach(),
@@ -383,7 +383,7 @@ class condGANTrainer(object):
                 # self.set_requires_grad_value(netsD, False)
                 netG.zero_grad()
                 errG_total, G_logs = \
-                    generator_loss(netsD, image_encoder, fake_imgs, real_labels,
+                    generator_loss(netsD, image_encoder, fake_imgs, real_labels, captions,
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
