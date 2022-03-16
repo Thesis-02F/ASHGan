@@ -3,13 +3,10 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+
 from nltk.tokenize import RegexpTokenizer
-from transformers import GPT2Tokenizer
-
 from collections import defaultdict
-
 from miscc.config import cfg
-from model import TRANSFORMER_ENCODER
 
 import torch
 import torch.utils.data as data
@@ -28,12 +25,17 @@ else:
     import pickle
 
 
-def prepare_data( data ):
-    imgs, captions, captions_lens, class_ids, keys = data
+def prepare_data(data):
+    imgs, captions, captions_lens, class_ids, keys, captions_2, captions_lens_2 = data
 
-    # sort data by the length in a descending order
+    # sort data by the length in a decreasing order
     sorted_cap_lens, sorted_cap_indices = \
         torch.sort(captions_lens, 0, True)
+    
+    sorted_cap_lens_2, sorted_cap_indices_2 = \
+        torch.sort(captions_lens_2, 0, True)
+
+    imgs_2 = imgs.copy()
 
     real_imgs = []
     for i in range(len(imgs)):
@@ -43,20 +45,51 @@ def prepare_data( data ):
         else:
             real_imgs.append(Variable(imgs[i]))
 
+    real_imgs_2 = []
+    for i in range(len(imgs_2)):
+        imgs_2[i] = imgs_2[i][sorted_cap_indices_2]
+        if cfg.CUDA:
+            real_imgs_2.append(Variable(imgs_2[i]).cuda())
+        else:
+            real_imgs_2.append(Variable(imgs_2[i]))
+
+
     captions = captions[sorted_cap_indices].squeeze()
-    class_ids = class_ids[sorted_cap_indices].numpy()
+    
+    captions_2 = captions_2[sorted_cap_indices_2].squeeze()
+    # sorted_captions_lens_2 = captions_lens_2[sorted_cap_indices].squeeze()
+
+    # captions = torch.cat([captions, captions_2], dim=0)
+    # sorted_cap_lens = torch.cat([sorted_cap_lens, sorted_captions_lens_2], dim=0)
+
+
+    
+    class_ids_1 = class_ids[sorted_cap_indices].numpy()
+    class_ids_2 = class_ids[sorted_cap_indices_2].numpy()
+
+    
     # sent_indices = sent_indices[sorted_cap_indices]
     keys = [keys[i] for i in sorted_cap_indices.numpy()]
     # print('keys', type(keys), keys[-1])  # list
     if cfg.CUDA:
         captions = Variable(captions).cuda()
         sorted_cap_lens = Variable(sorted_cap_lens).cuda()
+
+        captions_2 = Variable(captions_2).cuda()
+        sorted_cap_lens_2 = Variable(sorted_cap_lens_2).cuda()
+
+        sorted_cap_indices = sorted_cap_indices.cuda()
+        sorted_cap_indices_2 = sorted_cap_indices_2.cuda()       
+        
     else:
         captions = Variable(captions)
         sorted_cap_lens = Variable(sorted_cap_lens)
 
-    return [real_imgs, captions, sorted_cap_lens,
-            class_ids, keys]
+        captions_2 = Variable(captions_2)
+        sorted_cap_lens_2 = Variable(sorted_cap_lens_2)
+
+    return [real_imgs, real_imgs_2, captions, sorted_cap_lens,
+            class_ids_1, keys, captions_2, sorted_cap_lens_2, class_ids_2, sorted_cap_indices, sorted_cap_indices_2]
 
 
 def get_imgs(img_path, imsize, bbox=None,
@@ -92,13 +125,9 @@ def get_imgs(img_path, imsize, bbox=None,
 
 
 class TextDataset(data.Dataset):
-    def __init__(self, data_dir, text_encoder_type, split='train',
+    def __init__(self, data_dir, split='train',
                  base_size=64,
                  transform=None, target_transform=None):
-        self.text_encoder_type = text_encoder_type.casefold()
-        if self.text_encoder_type not in ( 'rnn', 'transformer' ):
-          raise ValueError( 'Unsupported text_encoder_type' )
-
         self.transform = transform
         self.norm = transforms.Compose([
             transforms.ToTensor(),
@@ -119,7 +148,6 @@ class TextDataset(data.Dataset):
             self.bbox = None
         split_dir = os.path.join(data_dir, split)
 
-        print( data_dir )
         self.filenames, self.captions, self.ixtoword, \
             self.wordtoix, self.n_words = self.load_text_data(data_dir, split)
 
@@ -141,6 +169,7 @@ class TextDataset(data.Dataset):
         #
         filename_bbox = {img_file[:-4]: [] for img_file in filenames}
         numImgs = len(filenames)
+        # for i in xrange(0, numImgs):
         for i in range(0, numImgs):
             # bbox = [x-left, y-top, width, height]
             bbox = df_bounding_boxes.iloc[i][1:].tolist()
@@ -152,16 +181,10 @@ class TextDataset(data.Dataset):
 
     def load_captions(self, data_dir, filenames):
         all_captions = []
-        # print( len(filenames) )
         for i in range(len(filenames)):
             cap_path = '%s/text/%s.txt' % (data_dir, filenames[i])
             with open(cap_path, "r") as f:
-                captions = f.read()
-                try:
-                  captions = captions.decode('utf8')
-                except AttributeError:
-                  pass
-                captions = captions.split( '\n' )
+                captions = f.read().decode('utf8').split('\n')
                 cnt = 0
                 for cap in captions:
                     if len(cap) == 0:
@@ -169,13 +192,8 @@ class TextDataset(data.Dataset):
                     cap = cap.replace("\ufffd\ufffd", " ")
                     # picks out sequences of alphanumeric characters as tokens
                     # and drops everything else
-                    if self.text_encoder_type == 'rnn':
-                        tokenizer = RegexpTokenizer(r'\w+')
-                        tokens = tokenizer.tokenize( cap.lower() )
-                    elif self.text_encoder_type == 'transformer':
-                        # if not i: print( 'here' )
-                        tokenizer = GPT2Tokenizer.from_pretrained( TRANSFORMER_ENCODER )
-                        tokens = tokenizer.tokenize( cap, add_prefix_space = True )
+                    tokenizer = RegexpTokenizer(r'\w+')
+                    tokens = tokenizer.tokenize(cap.lower())
                     # print('tokens', tokens)
                     if len(tokens) == 0:
                         print('cap', cap)
@@ -239,7 +257,6 @@ class TextDataset(data.Dataset):
         filepath = os.path.join(data_dir, 'captions.pickle')
         train_names = self.load_filenames(data_dir, 'train')
         test_names = self.load_filenames(data_dir, 'test')
-        print( filepath )
         if not os.path.isfile(filepath):
             train_captions = self.load_captions(data_dir, train_names)
             test_captions = self.load_captions(data_dir, test_names)
@@ -271,7 +288,8 @@ class TextDataset(data.Dataset):
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
             with open(data_dir + '/class_info.pickle', 'rb') as f:
-                class_id = pickle.load(f, encoding="bytes")
+                # class_id = pickle.load(f)
+                class_id = pickle.load(f, encoding='latin1')
         else:
             class_id = np.arange(total_num)
         return class_id
@@ -323,16 +341,42 @@ class TextDataset(data.Dataset):
                         bbox, self.transform, normalize=self.norm)
         # random select a sentence
         sent_ix = random.randint(0, self.embeddings_num)
-        # sent_ix = 0
         new_sent_ix = index * self.embeddings_num + sent_ix
         caps, cap_len = self.get_caption(new_sent_ix)
-        return imgs, caps, cap_len, cls_id, key
+        
+        # second sentence
+        sent_ix = random.randint(0, self.embeddings_num)
+        new_sent_ix = index * self.embeddings_num + sent_ix
+        caps_two, cap_len_two = self.get_caption(new_sent_ix)
+        
+        
+        return imgs, caps, cap_len, cls_id, key, caps_two, cap_len_two
+
+    def get_mis_caption(self, cls_id):
+        mis_match_captions_t = []
+        mis_match_captions = torch.zeros(99, cfg.TEXT.WORDS_NUM)
+        mis_match_captions_len = torch.zeros(99)
+        i = 0
+        while len(mis_match_captions_t) < 99:
+            idx = random.randint(0, self.number_example)
+            if cls_id == self.class_id[idx]:
+                continue
+            sent_ix = random.randint(0, self.embeddings_num)
+            new_sent_ix = idx * self.embeddings_num + sent_ix
+            caps_t, cap_len_t = self.get_caption(new_sent_ix)
+            mis_match_captions_t.append(torch.from_numpy(caps_t).squeeze())
+            mis_match_captions_len[i] = cap_len_t
+            i = i + 1
+        sorted_cap_lens, sorted_cap_indices = torch.sort(mis_match_captions_len, 0, True)
+        # import ipdb
+        # ipdb.set_trace()
+        for i in range(99):
+            mis_match_captions[i, :] = mis_match_captions_t[sorted_cap_indices[i]]
+        return mis_match_captions.type(torch.LongTensor).cuda(), sorted_cap_lens.type(torch.LongTensor).cuda()
 
 
     def __len__(self):
         return len(self.filenames)
-
-
 
 class ImageFolderDataset( data.Dataset ):
     def __init__( self, img_paths, transform = None, save_transformed = False ):

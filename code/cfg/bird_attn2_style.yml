@@ -12,15 +12,15 @@ TREE:
 
 TRAIN:
     FLAG: True
-    NET_G: ''  # '../models/bird_StyleAttnGAN2.pth'
+    NET_G: '/home/g02f/Style-AttnGAN/output/birds_attn2_2022_03_12_21_50_16/Model/netG_epoch_250.pth' 
     B_NET_D: True
-    BATCH_SIZE: 16  # 22
+    BATCH_SIZE: 10  # 22
     MAX_EPOCH: 600
-    SNAPSHOT_INTERVAL: 50
+    SNAPSHOT_INTERVAL: 20
     DISCRIMINATOR_LR: 0.002
     GENERATOR_LR: 0.002
     #
-    NET_E: '../../text_encoder600.pth'
+    NET_E: '/home/g02f/Style-AttnGAN/DAMSMencoders/bird/text_encoder200.pth'
     SMOOTH:
         GAMMA1: 4.0  # 1,2,5 good 4 best  10&100bad
         GAMMA2: 5.0
@@ -35,5 +35,5 @@ GAN:
     R_NUM: 2
 
 TEXT:
-    EMBEDDING_DIM: 768  # 768 for GPT-2, 256 for the default RNN_ENCODER bi-directional LSTM
+    EMBEDDING_DIM: 256  # 768 for GPT-2, 256 for the default RNN_ENCODER bi-directional LSTM
     CAPTIONS_PER_IMAGE: 10

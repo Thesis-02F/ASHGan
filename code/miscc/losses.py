@@ -172,7 +172,7 @@ def image_to_text_loss(output, target):
     target = target.view(-1)
     return F.cross_entropy(output, target)
 
-def generator_loss(netsD, image_encoder, fake_imgs, real_labels, captions,
+def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                    words_embs, sent_emb, match_labels,
                    cap_lens, class_ids):
     numDs = len(netsD)
@@ -198,7 +198,7 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels, captions,
         if i == (numDs - 1):
             # words_features: batch_size x nef x 17 x 17
             # sent_code: batch_size x nef
-            region_features, cnn_code, word_logits = image_encoder(fake_imgs[i], captions)
+            region_features, cnn_code = image_encoder(fake_imgs[i])
             w_loss0, w_loss1, _ = words_loss(region_features, words_embs,
                                              match_labels, cap_lens,
                                              class_ids, batch_size)
@@ -212,11 +212,11 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels, captions,
                 cfg.TRAIN.SMOOTH.LAMBDA
             # err_sent = err_sent + s_loss.data[0]
 
-            t_loss = image_to_text_loss(word_logits, captions) * cfg.TRAIN.SMOOTH.LAMBDA
+            errG_total += w_loss + s_loss
+            logs += 'w_loss: %.2f s_loss: %.2f ' % (w_loss.item(), s_loss.item())
+    return errG_total, logs, cnn_code
 
-            errG_total += w_loss + s_loss + t_loss
-            logs += 'w_loss: %.2f s_loss: %.2f t_loss: %.2f ' % (w_loss.item(), s_loss.item(), t_loss.item())
-    return errG_total, logs
+
 
 
 ##################################################################

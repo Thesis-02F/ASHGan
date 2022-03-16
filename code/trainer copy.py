@@ -344,8 +344,8 @@ class condGANTrainer(object):
             G_total_loss = 0
             while step < self.num_batches:
                 # reset requires_grad to be trainable for all Ds
-                # self.set_requires_grad_value(netsD, True)
-                # self.set_requires_grad_value([netG], False)
+                self.set_requires_grad_value(netsD, True)
+                self.set_requires_grad_value([netG], False)
 
                 ######################################################
                 # (1) Prepare training data and Compute text embeddings
@@ -406,8 +406,8 @@ class condGANTrainer(object):
                 gen_iterations += 1
 
                 # do not need to compute gradient for Ds
-                # self.set_requires_grad_value(netsD, False)
-                # self.set_requires_grad_value([netG], True)
+                self.set_requires_grad_value(netsD, False)
+                self.set_requires_grad_value([netG], True)
                 netG.zero_grad()
                 errG_total, G_logs, cnn_code = \
                     generator_loss(netsD, image_encoder, fake_imgs, real_labels,

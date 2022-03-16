@@ -67,12 +67,8 @@ def gen_example(wordtoix, text_encoder_type, algo):
                     if len(sent) == 0:
                         continue
                     sent = sent.replace("\ufffd\ufffd", " ")
-                    if text_encoder_type == 'rnn':
-                      tokenizer = RegexpTokenizer(r'\w+')
-                      tokens = tokenizer.tokenize( sent.lower() )
-                    elif text_encoder_type == 'transformer':
-                      tokenizer = GPT2Tokenizer.from_pretrained( TRANSFORMER_ENCODER )
-                      tokens = tokenizer.tokenize( sent )
+                    tokenizer = RegexpTokenizer(r'\w+')
+                    tokens = tokenizer.tokenize( sent.lower() )
                     if len(tokens) == 0:
                         print('sent', sent)
                         continue
@@ -141,7 +137,7 @@ if __name__ == "__main__":
         transforms.Resize(int(imsize * 76 / 64)),
         transforms.RandomCrop(imsize),
         transforms.RandomHorizontalFlip()])
-    dataset = TextDataset(cfg.DATA_DIR, args.text_encoder_type, split_dir,
+    dataset = TextDataset(cfg.DATA_DIR, split_dir,
                           base_size=cfg.TREE.BASE_SIZE,
                           transform=image_transform)
     assert dataset
@@ -150,7 +146,7 @@ if __name__ == "__main__":
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
     # Define models and go to train/evaluate
-    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword, dataset.text_encoder_type)
+    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:

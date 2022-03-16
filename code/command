@@ -1,0 +1,5 @@
+pip uninstall scipy
+pip install scipy==1.1.0
+python fid_score.py --gpu 0 --batch-size 10 --path1 /home/g02f/Style-AttnGAN/data/birds/CUB_200_2011/images/256x256 --path2 /home/g02f/Style-AttnGAN/output/birds_attn2_2022_03_12_21_50_16/Model/netG_epoch_250/valid/single
+pip uninstall scipy
+pip install scipy
