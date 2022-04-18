@@ -12,7 +12,7 @@ import numpy as np
 
 from miscc.config import cfg
 from GlobalAttention import GlobalAttentionGeneral as ATT_NET
-from style2_unofficial import StyledConv
+from style2_unofficial import StyledConv, Upsample, ModulatedConv2d
 
 from gan_lab.stylegan.architectures import StyleMappingNetwork, StyleConditionedMappingNetwork, \
                                            StyleAddNoise
@@ -798,13 +798,21 @@ class NEXT_STAGE_G(nn.Module):
 class GET_IMAGE_G_STYLED( nn.Module ):
     def __init__( self, ngf ):
         super( GET_IMAGE_G_STYLED, self ).__init__()
-        conv = Conv2dEx( ni = ngf, nf = 3, ks = 1, stride = 1,
-                         padding = 0, init = 'He', init_type = 'StyleGAN',
-                         gain_sq_base = 1., equalized_lr = True )
-        self.torgb = nn.Sequential( conv ) if not cfg.GAN.B_TANH else nn.Sequential( conv, nn.Tanh() )
+        if cfg.GAN.B_STYLE2:
+            self.conv = ModulatedConv2d(ngf, 3, 1, cfg.GAN.W_DIM, demodulate=False)
+            self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
+        else:
+            conv = Conv2dEx( ni = ngf, nf = 3, ks = 1, stride = 1,
+                            padding = 0, init = 'He', init_type = 'StyleGAN',
+                            gain_sq_base = 1., equalized_lr = True )
+            self.torgb = nn.Sequential( conv ) if not cfg.GAN.B_TANH else nn.Sequential( conv, nn.Tanh() )
 
-    def forward( self, h_code ):
-        return self.torgb( h_code )
+    def forward( self, h_code, style=None ):
+        if cfg.GAN.B_STYLE2:
+            out = self.conv(h_code, style)
+            return out + self.bias
+        else:
+            return self.torgb( h_code )
 
 class GET_IMAGE_G(nn.Module):
     def __init__(self, ngf):
@@ -962,17 +970,18 @@ class G_NET_STYLED( nn.Module ):
             elif self.trunc_cutoff_stage is not None:
                 w_code = self.w_ewma.expand_as( w_code ) + self.w_eval_psi * ( w_code - self.w_ewma.expand_as( w_code ) )
 
+        style = w_code if cfg.GAN.B_STYLE2 else None
         if cfg.TREE.BRANCH_NUM > 0:
             h_code1 = \
                 self.h_net1( w_code, x2 = w2_code, cutoff_idx = cutoff_idx, style_mixing_stage = style_mixing_stage, noise = self.noise_net1,
                              use_truncation_trick = self.use_truncation_trick, trunc_cutoff_stage = self.trunc_cutoff_stage, w_ewma = self.w_ewma, w_eval_psi = self.w_eval_psi )
-            fake_img1 = self.img_net1( h_code1 )
+            fake_img1 = self.img_net1( h_code1, style )
             fake_imgs.append( fake_img1 )
         if cfg.TREE.BRANCH_NUM > 1:
             h_code2, att1 = \
                 self.h_net2( h_code1, w_code, word_embs, mask, x2 = w2_code, cutoff_idx = cutoff_idx, style_mixing_stage = style_mixing_stage, noise = self.noise_net2,
                              use_truncation_trick = self.use_truncation_trick, trunc_cutoff_stage = self.trunc_cutoff_stage, w_ewma = self.w_ewma, w_eval_psi = self.w_eval_psi )
-            fake_img2 = self.img_net2( h_code2 )
+            fake_img2 = self.img_net2( h_code2, style )
             fake_imgs.append( fake_img2 )
             if att1 is not None:
                 att_maps.append( att1 )
@@ -980,7 +989,7 @@ class G_NET_STYLED( nn.Module ):
             h_code3, att2 = \
                 self.h_net3( h_code2, w_code, word_embs, mask, x2 = w2_code, cutoff_idx = cutoff_idx, style_mixing_stage = style_mixing_stage, noise = self.noise_net3,
                              use_truncation_trick = self.use_truncation_trick, trunc_cutoff_stage = self.trunc_cutoff_stage, w_ewma = self.w_ewma, w_eval_psi = self.w_eval_psi )
-            fake_img3 = self.img_net3( h_code3 )
+            fake_img3 = self.img_net3( h_code3, style )
             fake_imgs.append( fake_img3 )
             if att2 is not None:
                 att_maps.append( att2 )
