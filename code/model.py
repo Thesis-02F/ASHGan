@@ -12,6 +12,7 @@ import numpy as np
 
 from miscc.config import cfg
 from GlobalAttention import GlobalAttentionGeneral as ATT_NET
+from style2_unofficial import StyledConv
 
 from gan_lab.stylegan.architectures import StyleMappingNetwork, StyleConditionedMappingNetwork, \
                                            StyleAddNoise
@@ -407,22 +408,36 @@ class INIT_STAGE_G_STYLED( nn.Module ):
                       init = 'He', init_type = 'StyleGAN', gain_sq_base = 1., equalized_lr = True ),
         )
 
-        self.gen_layers.append(
-            nn.ModuleList( [
-                None,
-                StyleAddNoise( nf = ngf ),
-                bias_nl_norm,
-                w_to_styles[0]
-            ] )
-        )
-        self.gen_layers.append(
-            nn.ModuleList( [
-                conv,
-                StyleAddNoise( nf = ngf ),
-                nn.Sequential( Conv2dBias( nf = ngf ), self.nl, self.norm ),
-                w_to_styles[1]
-            ] )
-        )
+        if cfg.GAN.B_STYLE2:
+            styled_conv_0 = StyledConv(ngf, ngf, 3, cfg.GAN.W_DIM)
+            self.gen_layers.append(
+                nn.ModuleList( [
+                    None,
+                    styled_conv_0[1],
+                    styled_conv_0[2],
+                ] )
+            )
+            styled_conv_1 = StyledConv(ngf, ngf, 3, cfg.GAN.W_DIM)
+            self.gen_layers.append(
+                nn.ModuleList( styled_conv_1 )
+            )
+        else:
+            self.gen_layers.append(
+                nn.ModuleList( [
+                    None,
+                    StyleAddNoise( nf = ngf ),
+                    bias_nl_norm,
+                    w_to_styles[0]
+                ] )
+            )
+            self.gen_layers.append(
+                nn.ModuleList( [
+                    conv,
+                    StyleAddNoise( nf = ngf ),
+                    nn.Sequential( Conv2dBias( nf = ngf ), self.nl, self.norm ),
+                    w_to_styles[1]
+                ] )
+            )
 
         # resolutions 8 through 64:
         self._increase_scale( ngf, ngf )
@@ -456,10 +471,14 @@ class INIT_STAGE_G_STYLED( nn.Module ):
                                init = 'He', init_type = 'StyleGAN', gain_sq_base = 1.,
                                equalized_lr = True )
 
-        return nn.ModuleList( [ nn.Sequential( *upsampler, conv, *blur ),
-                                StyleAddNoise( nf = nf ),
-                                nn.Sequential( Conv2dBias( nf = nf ), self.nl, self.norm ),
-                                w_to_style ] )
+        if cfg.GAN.B_STYLE2:
+            styled_conv = StyledConv(ni, nf, 3, cfg.GAN.W_DIM)
+            return nn.ModuleList( styled_conv )
+        else:
+            return nn.ModuleList( [ nn.Sequential( *upsampler, conv, *blur ),
+                                    StyleAddNoise( nf = nf ),
+                                    nn.Sequential( Conv2dBias( nf = nf ), self.nl, self.norm ),
+                                    w_to_style ] )
 
     def train( self, mode = True ):
         """Overwritten to turn on mixing regularization (if > 0%) during training mode."""
@@ -506,13 +525,6 @@ class INIT_STAGE_G_STYLED( nn.Module ):
                 x = x2.detach().clone()
                 x.requires_grad_( True )
 
-            if n:
-                out = layer[ 0 ]( out )
-            # if False:
-            if self.use_noise:
-                out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
-            out = layer[ 2 ]( out )
-
             # Evaluation Mode Only:
             if n == style_mixing_stage:
                 assert ( style_mixing_stage and not self.training and isinstance( x2, torch.Tensor ) )
@@ -524,9 +536,23 @@ class INIT_STAGE_G_STYLED( nn.Module ):
                 # de-truncate w for higher resolutions; more memory-efficient than defining 2 w's
                 x = ( x - w_ewma.expand_as( x ) ).div( w_eval_psi ) + w_ewma.expand_as( x )
 
-            y = layer[ 3 ]( x ).view( -1, 2, layer[ 3 ].nout_feat // 2, 1, 1 )
-            out = out * ( y[ :, 0 ].contiguous().add( 1 ) ) + \
-                y[ :, 1 ].contiguous()  # add 1 for skip-connection effect
+            if n:
+                if cfg.GAN.B_STYLE2:
+                    out = layer[ 0 ]( out, x )
+                else:
+                    out = layer[ 0 ]( out )
+            # if False:
+            if self.use_noise:
+                out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
+            if cfg.GAN.B_STYLE2:
+                out += layer[ 2 ]
+                out = self.nl(out)
+            else:
+                out = layer[ 2 ]( out )
+
+                y = layer[ 3 ]( x ).view( -1, 2, layer[ 3 ].nout_feat // 2, 1, 1 )
+                out = out * ( y[ :, 0 ].contiguous().add( 1 ) ) + \
+                    y[ :, 1 ].contiguous()  # add 1 for skip-connection effect
 
         return out
 
@@ -639,10 +665,14 @@ class NEXT_STAGE_G_STYLED( nn.Module ):
                                init = 'He', init_type = 'StyleGAN', gain_sq_base = 1.,
                                equalized_lr = True )
 
-        return nn.ModuleList( [ nn.Sequential( *upsampler, conv, *blur ),
-                                StyleAddNoise( nf = nf ),
-                                nn.Sequential( Conv2dBias( nf = nf ), self.nl, self.norm ),
-                                w_to_style ] )
+        if cfg.GAN.B_STYLE2:
+            styled_conv = StyledConv(ni, nf, 3, cfg.GAN.W_DIM)
+            return nn.ModuleList( styled_conv )
+        else:
+            return nn.ModuleList( [ nn.Sequential( *upsampler, conv, *blur ),
+                                    StyleAddNoise( nf = nf ),
+                                    nn.Sequential( Conv2dBias( nf = nf ), self.nl, self.norm ),
+                                    w_to_style ] )
 
     def train( self, mode = True ):
         """Overwritten to turn on mixing regularization (if > 0%) during training mode."""
@@ -686,15 +716,10 @@ class NEXT_STAGE_G_STYLED( nn.Module ):
         self.att.applyMask( mask )
         c_code, att = self.att( out, word_embs )
         out = torch.cat(( out, c_code ), 1 )
-        out = self.residual( out )
+        if not cfg.GAN.B_STYLE2:
+            out = self.residual( out )
 
         for n, layer in enumerate( self.gen_layers ):
-            out = layer[ 0 ]( out )
-            # if False:
-            if self.use_noise:
-                out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
-            out = layer[ 2 ]( out )
-
             # Training Mode Only:
             if ( n + 2*self.init_stage ) == cutoff_idx and self.training:
                 x = x2.detach().clone()
@@ -710,10 +735,25 @@ class NEXT_STAGE_G_STYLED( nn.Module ):
             elif use_truncation_trick and not self.training and trunc_cutoff_stage is not None and ( n + 2*self.init_stage ) == 2*trunc_cutoff_stage:
                 # de-truncate w for higher resolutions; more memory-efficient than defining 2 w's
                 x = ( x - w_ewma.expand_as( x ) ).div( w_eval_psi ) + w_ewma.expand_as( x )
+            
+            if cfg.GAN.B_STYLE2:
+                out = layer[ 0 ]( out, x )
+                # if False:
+                if self.use_noise:
+                    out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
+                out += layer[ 2 ]
+                out = self.nl(out)
+            
+            else:
+                out = layer[ 0 ]( out )
+                # if False:
+                if self.use_noise:
+                    out = layer[ 1 ]( out, noise = noise[ n ] if noise is not None else None )
+                out = layer[ 2 ](out)
 
-            y = layer[ 3 ]( x ).view( -1, 2, layer[ 3 ].nout_feat // 2, 1, 1 )
-            out = out * ( y[ :, 0 ].contiguous().add( 1 ) ) + \
-                  y[ :, 1 ].contiguous()  # add 1 for skip-connection effect
+                y = layer[ 3 ]( x ).view( -1, 2, layer[ 3 ].nout_feat // 2, 1, 1 )
+                out = out * ( y[ :, 0 ].contiguous().add( 1 ) ) + \
+                    y[ :, 1 ].contiguous()  # add 1 for skip-connection effect
 
         return out, att
 
