@@ -55,6 +55,7 @@ __C.TRAIN.SMOOTH.LAMBDA = 1.0
 __C.GAN = edict()
 __C.GAN.B_STYLEGEN = True        # whether to use StyleGAN-based Generator
 __C.GAN.B_STYLEDISC = True       # whether to use StyleGAN-based Discriminator
+__C.GAN.B_STYLE2 = True            # whether to use StyleGAN2 or 1
 __C.GAN.DF_DIM = 32
 __C.GAN.GF_DIM = 32
 __C.GAN.Z_DIM = 100              # In StyleGAN/ProGAN, the default is 512, but recommended to use 100 here (AttnGAN default)
